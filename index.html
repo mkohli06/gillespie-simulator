@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stochastic Reaction Simulator</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Stochastic Reaction Simulator</h1>
+  <p>Write a reaction model, simulate it with the Gillespie algorithm, and see how much it varies from run to run. Everything runs in your browser; nothing is uploaded.</p>
+</header>
+<nav class="tabs" role="tablist">
+  <button id="tabSim" role="tab" aria-selected="true">Simulate</button>
+  <button id="tabVal" role="tab" aria-selected="false">Validation</button>
+</nav>
+
+<main>
+<div id="viewSim" class="view">
+  <div class="grid2">
+    <section class="card" id="modelPanel">
+      <h2>Model</h2>
+      <div class="row">
+        <label class="btn" for="loadFile">Load file…</label>
+        <input id="loadFile" type="file" accept=".txt,.ant" hidden>
+        <button class="btn" id="btnSaveModel">Save model</button>
+        <button class="btn" id="btnCheck">Check model</button>
+        <button class="btn" id="btnExport">Export Antimony</button>
+      </div>
+      <div class="editor">
+        <div id="gutter" aria-hidden="true"></div>
+        <textarea id="modelText" spellcheck="false" wrap="off" aria-label="Model text"></textarea>
+      </div>
+      <div id="checkOut" class="msg" role="status" aria-live="polite"></div>
+      <section id="antimonyPanel" hidden>
+        <h3>Antimony text</h3>
+        <pre class="block" id="antimonyText"></pre>
+        <div class="row">
+          <button class="btn" id="btnAntDownload">Download .ant</button>
+          <button class="btn" id="btnAntCopy">Copy</button>
+        </div>
+      </section>
+      <details>
+        <summary>Model grammar</summary>
+        <pre>One statement per line. Blank lines and comments (# or //) are ignored.
+
+Reaction:   name: reactants -&gt; products; rate_constant_name
+            J1: A + B -&gt; C; k1
+            J2: 2 A -&gt; ; k2         (a blank side is allowed)
+            J3: -&gt; A; k3            (production from nothing)
+Values:     A = 100                 (species: whole number, 0 or more)
+            k1 = 0.001              (rate constant: number, 0 or more)
+
+* At most two reactant molecules per reaction (coefficients sum to 2 or less).
+* Coefficients are positive whole numbers: 2 A.
+* A $ prefix marks a boundary species ($S): it takes part in the rate
+  but its amount never changes.
+* Every species and every rate constant needs a value.
+* Rates use mass action: rate constant x number of reactant combinations.
+* Antimony text from this page's Export loads back in (e.g. J1: A + B -&gt; C; k1*A*B).</pre>
+      </details>
+    </section>
+
+    <div style="display:grid;gap:16px">
+      <section class="card" id="runPanel">
+        <h2>Run</h2>
+        <div class="row">
+          <label>End time <input id="endTime" type="number" value="100" min="0" step="any"></label>
+          <label>Seed
+            <span style="display:flex;gap:4px"><input id="seedInput" type="text" inputmode="numeric" autocomplete="off" placeholder="blank = random"><button class="btn" id="btnClearSeed" title="Clear the seed for a new random run" type="button">Clear</button></span>
+          </label>
+          <button class="btn primary" id="btnRun">Run</button>
+          <button class="btn" id="btnCancel" hidden>Cancel</button>
+        </div>
+        <p class="hint" id="seedNote">A seed is a number that controls the randomness of a run. Using the same seed with the same model gives exactly the same result every time. Leave blank for a new random run.</p>
+        <div class="row" id="saveSeedRow" hidden>
+          <span id="saveSeedText"></span>
+          <button class="btn" id="btnSaveSeed">Save seed</button>
+        </div>
+
+        <h3>Ensemble</h3>
+        <div class="row">
+          <label>Number of runs N <input id="nRuns" type="number" min="2" max="100000" value="200"></label>
+          <input id="nRunsSlider" type="range" min="2" max="1000" value="200" aria-label="Number of runs">
+        </div>
+        <div class="row">
+          <label>Grid spacing <input id="gridDt" type="number" min="0" step="any" placeholder="auto"></label>
+          <input id="gridPoints" type="range" min="10" max="1000" value="100" aria-label="Grid points">
+          <span class="hint" id="gridPointsLabel"></span>
+          <button class="btn primary" id="btnRunEns">Run ensemble</button>
+        </div>
+        <div class="row"><progress id="progress" value="0" max="1" hidden></progress><span id="progressText" class="hint"></span></div>
+        <div id="runMsg" class="msg" role="status" aria-live="polite"></div>
+      </section>
+
+      <section class="card" id="seedsPanel">
+        <h2>Saved seeds</h2>
+        <ul class="seeds" id="seedList"></ul>
+        <p class="hint" id="seedsEmpty">Nothing saved yet. After a run, press “Save seed” to keep one. Click an entry to restore its settings.</p>
+      </section>
+    </div>
+  </div>
+
+  <section class="card" id="plotPanel" style="margin-top:16px">
+    <h2>Plot</h2>
+    <canvas id="plotCanvas" class="plot" aria-label="Plot of species against time"></canvas>
+    <div class="toggles" id="speciesToggles"></div>
+    <div class="row">
+      <label style="flex-direction:row;gap:6px;align-items:center;color:inherit;font-size:14px"><input type="radio" name="plotMode" value="single" checked> Single run</label>
+      <label style="flex-direction:row;gap:6px;align-items:center;color:inherit;font-size:14px"><input type="radio" name="plotMode" value="ensemble"> Ensemble</label>
+      <label style="flex-direction:row;gap:6px;align-items:center;color:inherit;font-size:14px"><input type="checkbox" id="chkOverlay"> Show individual runs</label>
+      <button class="btn" id="btnResetZoom">Reset zoom</button>
+      <button class="btn" id="btnPng">Download PNG</button>
+      <button class="btn" id="btnCsv" disabled>Download CSV</button>
+      <button class="btn" id="btnEnsCsv" disabled>Download ensemble CSV</button>
+    </div>
+    <p class="hint" id="plotInfo">Drag a box on the plot to zoom, scroll to zoom in or out, double-click to reset.</p>
+  </section>
+</div>
+
+<div id="viewVal" class="view" hidden>
+  <section class="card">
+    <h2>V1 · Steady-state spread</h2>
+    <p class="hint">Runs the model in the text box 1000 times and reports the mean and variance of each species’ final value. For a simple birth–death model the variance ÷ mean should be 1. PASS if it is within 10% of 1; species whose mean is 0 show “n/a”.</p>
+    <div class="row">
+      <label>End time <input id="v1End" type="number" min="0" step="any" value="100"></label>
+      <button class="btn primary" id="btnV1">Run V1</button>
+      <button class="btn" id="btnV1Example">Load birth–death example model</button>
+    </div>
+    <div class="row"><progress id="v1Prog" value="0" max="1" hidden></progress></div>
+    <div id="v1Out"></div>
+  </section>
+
+  <section class="card" style="margin-top:16px">
+    <h2>V2 · Agreement with Tellurium</h2>
+    <ol class="hint" style="max-width:80ch">
+      <li>Press <b>Export Antimony</b> on the Simulate tab and save the .ant file.</li>
+      <li>In a Python environment with Tellurium installed, run the script that ships with this page:<br><code id="v2Cmd" style="font-family:var(--mono)"></code></li>
+      <li>Upload the CSV it writes below. Our simulator then runs 500 runs of the model in the text box on the same time grid, and compares means and SDs at every grid time using z = (mean₁ − mean₂) ÷ √(SD₁²/n₁ + SD₂²/n₂).</li>
+    </ol>
+    <p class="hint">PASS needs: at most 1% of |z| above 3, no species with a consistent drift (average z beyond ±1), and at most 2% of SD comparisons beyond 3.</p>
+    <div class="row">
+      <label>Tellurium results file <input id="v2File" type="file" accept=".csv,.txt"></label>
+      <label>Runs in that file <input id="v2N" type="number" min="2" value="500"></label>
+      <button class="btn primary" id="btnV2">Run V2</button>
+    </div>
+    <div class="row"><progress id="v2Prog" value="0" max="1" hidden></progress></div>
+    <div id="v2Out"></div>
+  </section>
+
+  <section class="card" style="margin-top:16px">
+    <h2>V3 · Seed test</h2>
+    <p class="hint">Checks that the CSV files are byte-for-byte identical for the same seed, differ for different seeds, and that typing a displayed seed back in, or re-running from a saved seed, reproduces the original exactly. Uses the model and end time on the Simulate tab.</p>
+    <div class="row"><button class="btn primary" id="btnV3">Run V3</button></div>
+    <div id="v3Out"></div>
+  </section>
+</div>
+</main>
+
+<script src="core.js"></script>
+<script src="plot.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
